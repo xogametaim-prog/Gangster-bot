@@ -1,12 +1,10 @@
 import os
 
-# قراءة التوكن من متغير البيئة (آمن للاستضافة على Render)
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 if TOKEN is None:
     raise ValueError("❌ DISCORD_TOKEN environment variable not set.")
 
-# إعدادات اللعبة
 عملات_البداية = 1000
 رصيد_البداية = 0
 مكافأة_يومية_عملات = 500
