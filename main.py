@@ -12,7 +12,7 @@ import traceback
 import threading
 from flask import Flask
 from datetime import datetime, date, timedelta
-from tickets import TicketButton, رتبة_التذاكر_المسموح_لها, is_authorized, تأكيد_الإغلاق
+from tickets import TicketButton, رتبة_التذاكر_المسموح_لها, is_authorized, init_ticket_db, تأكيد_الإغلاق
 
 تطبيق_فلاسك = Flask(__name__)
 
@@ -270,53 +270,22 @@ def complete_mission(user_id, mission_num):
     mission[f"c{mission_num}"] = 1
     return True, target
 
-async def init_ticket_db():
-    async with aiosqlite.connect("ticket_data.db") as db:
-        await db.execute('''CREATE TABLE IF NOT EXISTS اعدادات_السيرفر (
-            guild_id TEXT PRIMARY KEY,
-            رتبة_التذاكر TEXT,
-            قناة_البانل TEXT,
-            قناة_الرسائل_التلقائية TEXT,
-            رسالة_العنوان TEXT,
-            رسالة_الوصف TEXT,
-            لون_الرسالة TEXT,
-            تم_الاعداد BOOLEAN DEFAULT 0
-        )''')
-        await db.execute('''CREATE TABLE IF NOT EXISTS تذاكر (
-            channel_id TEXT PRIMARY KEY,
-            guild_id TEXT,
-            creator_id TEXT,
-            creator_name TEXT,
-            claimer_id TEXT,
-            status TEXT,
-            created_at INTEGER
-        )''')
-        await db.execute('''CREATE TABLE IF NOT EXISTS بانل (
-            guild_id TEXT PRIMARY KEY,
-            channel_id TEXT,
-            message_id TEXT
-        )''')
-        await db.execute('''CREATE TABLE IF NOT EXISTS tags (
-            guild_id TEXT,
-            tag_name TEXT,
-            tag_content TEXT,
-            PRIMARY KEY (guild_id, tag_name)
-        )''')
-        await db.commit()
-
 @tasks.loop(minutes=5)
 async def رسائل_تلقائية():
-    async with aiosqlite.connect("ticket_data.db") as db:
-        cursor = await db.execute("SELECT قناة_الرسائل_التلقائية FROM اعدادات_السيرفر WHERE تم_الاعداد = 1")
-        rows = await cursor.fetchall()
-    
-    for row in rows:
-        channel_id = row[0]
-        if channel_id:
-            channel = البوت.get_channel(int(channel_id))
-            if channel:
-                رسالة = random.choice(الرسائل_التلقائية)
-                await channel.send(رسالة)
+    try:
+        async with aiosqlite.connect("ticket_data.db") as db:
+            cursor = await db.execute("SELECT قناة_الرسائل_التلقائية FROM اعدادات_السيرفر WHERE تم_الاعداد = 1")
+            rows = await cursor.fetchall()
+        
+        for row in rows:
+            channel_id = row[0]
+            if channel_id:
+                channel = البوت.get_channel(int(channel_id))
+                if channel:
+                    رسالة = random.choice(الرسائل_التلقائية)
+                    await channel.send(رسالة)
+    except Exception as e:
+        print(f"خطأ في الرسائل التلقائية: {e}")
 
 @رسائل_تلقائية.before_loop
 async def before_رسائل_تلقائية():
@@ -361,56 +330,66 @@ async def on_guild_join(guild):
             await channel.send(embed=embed)
             break
 
-@البوت.tree.command(name="اعدادات", description="إعداد البوت")
+@البوت.tree.command(name="اعدادات", description="إعداد البوت في السيرفر")
 @app_commands.describe(role="الرتبة المسؤولة عن التذاكر", panel_channel="قناة لوحة التذاكر", auto_channel="قناة الرسائل التلقائية")
 async def اعدادات(interaction: discord.Interaction, role: discord.Role, panel_channel: discord.TextChannel, auto_channel: discord.TextChannel):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ هذا الأمر مخصص للأونر فقط!", ephemeral=True)
-        return
-    
-    embed_title = "🛡️ فتح تذكرة جديدة"
-    embed_description = "اضغط على الزر أدناه لفتح تذكرة وسيقوم فريق الدعم بالتواصل معك قريباً."
-    embed_color = "5865F2"
-    
-    async with aiosqlite.connect("ticket_data.db") as db:
-        await db.execute("INSERT OR REPLACE INTO اعدادات_السيرفر (guild_id, رتبة_التذاكر, قناة_البانل, قناة_الرسائل_التلقائية, رسالة_العنوان, رسالة_الوصف, لون_الرسالة, تم_الاعداد) VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
-                        (str(interaction.guild_id), str(role.id), str(panel_channel.id), str(auto_channel.id), embed_title, embed_description, embed_color))
+    try:
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ هذا الأمر مخصص للأونر فقط!", ephemeral=True)
+            return
+        
+        embed_title = "🛡️ فتح تذكرة جديدة"
+        embed_description = "اضغط على الزر أدناه لفتح تذكرة"
+        embed_color = "5865F2"
+        
+        async with aiosqlite.connect("ticket_data.db") as db:
+            await db.execute("INSERT OR REPLACE INTO اعدادات_السيرفر (guild_id, رتبة_التذاكر, قناة_البانل, قناة_الرسائل_التلقائية, رسالة_العنوان, رسالة_الوصف, لون_الرسالة, تم_الاعداد) VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
+                            (str(interaction.guild_id), str(role.id), str(panel_channel.id), str(auto_channel.id), embed_title, embed_description, embed_color))
+            await db.commit()
+        
+        global رتبة_التذاكر_المسموح_لها
+        رتبة_التذاكر_المسموح_لها = role.id
+        
+        embed = discord.Embed(title=embed_title, description=embed_description, color=int(embed_color, 16))
+        view = TicketButton(embed_title, embed_description, embed_color)
+        msg = await panel_channel.send(embed=embed, view=view)
+        
+        await db.execute("INSERT OR REPLACE INTO بانل (guild_id, channel_id, message_id) VALUES (?, ?, ?)", (str(interaction.guild_id), str(panel_channel.id), str(msg.id)))
         await db.commit()
-    
-    global رتبة_التذاكر_المسموح_لها
-    رتبة_التذاكر_المسموح_لها = role.id
-    
-    embed = discord.Embed(title=embed_title, description=embed_description, color=int(embed_color, 16))
-    view = TicketButton(embed_title, embed_description, embed_color)
-    msg = await panel_channel.send(embed=embed, view=view)
-    
-    await db.execute("INSERT OR REPLACE INTO بانل (guild_id, channel_id, message_id) VALUES (?, ?, ?)", (str(interaction.guild_id), str(panel_channel.id), str(msg.id)))
-    await db.commit()
-    
-    await interaction.response.send_message(f"✅ تم إعداد البوت بنجاح!\nالرتبة: {role.mention}\nقناة البانل: {panel_channel.mention}\nقناة الرسائل: {auto_channel.mention}", ephemeral=True)
+        
+        await interaction.response.send_message(f"✅ تم إعداد البوت بنجاح!\nالرتبة: {role.mention}\nقناة البانل: {panel_channel.mention}\nقناة الرسائل: {auto_channel.mention}", ephemeral=True)
+    except Exception as e:
+        print(f"خطأ في اعدادات: {e}")
+        await interaction.response.send_message(f"❌ حدث خطأ: {str(e)}", ephemeral=True)
+
+@البوت.tree.command(name="setup", description="إعداد البوت في السيرفر")
+@app_commands.describe(role="الرتبة المسؤولة عن التذاكر", panel_channel="قناة لوحة التذاكر", auto_channel="قناة الرسائل التلقائية")
+async def setup(interaction: discord.Interaction, role: discord.Role, panel_channel: discord.TextChannel, auto_channel: discord.TextChannel):
+    await اعدادات(interaction, role, panel_channel, auto_channel)
 
 @البوت.tree.command(name="edit", description="تعديل رسالة لوحة التذاكر")
 @app_commands.describe(title="العنوان الجديد", description="الوصف الجديد", color="اللون (Hex)")
 async def edit_panel(interaction: discord.Interaction, title: str = None, description: str = None, color: str = None):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ هذا الأمر مخصص للأونر فقط!", ephemeral=True)
-        return
-    
-    async with aiosqlite.connect("ticket_data.db") as db:
-        cursor = await db.execute("SELECT قناة_البانل, رسالة_العنوان, رسالة_الوصف, لون_الرسالة FROM اعدادات_السيرفر WHERE guild_id = ?", (str(interaction.guild_id),))
-        row = await cursor.fetchone()
-        if not row:
-            await interaction.response.send_message("❌ لم يتم إعداد البوت بعد!", ephemeral=True)
+    try:
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ هذا الأمر مخصص للأونر فقط!", ephemeral=True)
             return
         
-        channel_id, old_title, old_desc, old_color = row
-        new_title = title if title is not None else (old_title or "🛡️ فتح تذكرة جديدة")
-        new_desc = description if description is not None else (old_desc or "اضغط على الزر أدناه لفتح تذكرة")
-        new_color = color if color is not None else (old_color or "5865F2")
-        
-        await db.execute("UPDATE اعدادات_السيرفر SET رسالة_العنوان = ?, رسالة_الوصف = ?, لون_الرسالة = ? WHERE guild_id = ?",
-                        (new_title, new_desc, new_color, str(interaction.guild_id)))
-        await db.commit()
+        async with aiosqlite.connect("ticket_data.db") as db:
+            cursor = await db.execute("SELECT قناة_البانل, رسالة_العنوان, رسالة_الوصف, لون_الرسالة FROM اعدادات_السيرفر WHERE guild_id = ?", (str(interaction.guild_id),))
+            row = await cursor.fetchone()
+            if not row:
+                await interaction.response.send_message("❌ لم يتم إعداد البوت بعد! استخدم `/اعدادات` أولاً.", ephemeral=True)
+                return
+            
+            channel_id, old_title, old_desc, old_color = row
+            new_title = title or old_title or "🛡️ فتح تذكرة جديدة"
+            new_desc = description or old_desc or "اضغط على الزر أدناه لفتح تذكرة"
+            new_color = color or old_color or "5865F2"
+            
+            await db.execute("UPDATE اعدادات_السيرفر SET رسالة_العنوان = ?, رسالة_الوصف = ?, لون_الرسالة = ? WHERE guild_id = ?",
+                            (new_title, new_desc, new_color, str(interaction.guild_id)))
+            await db.commit()
         
         if channel_id:
             channel = interaction.guild.get_channel(int(channel_id))
@@ -430,35 +409,11 @@ async def edit_panel(interaction: discord.Interaction, title: str = None, descri
                     msg = await channel.send(embed=embed, view=view)
                     await db.execute("INSERT INTO بانل (guild_id, channel_id, message_id) VALUES (?, ?, ?)", (str(interaction.guild_id), str(channel.id), str(msg.id)))
                 await db.commit()
-    
-    await interaction.response.send_message("✅ تم تحديث رسالة لوحة التذاكر!", ephemeral=True)
-
-@البوت.tree.command(name="setup", description="إعداد البوت")
-@app_commands.describe(role="الرتبة المسؤولة عن التذاكر", panel_channel="قناة لوحة التذاكر", auto_channel="قناة الرسائل التلقائية")
-async def setup(interaction: discord.Interaction, role: discord.Role, panel_channel: discord.TextChannel, auto_channel: discord.TextChannel):
-    await اعدادات(interaction, role, panel_channel, auto_channel)
-
-@البوت.tree.command(name="بنل", description="إرسال لوحة التذاكر")
-async def panel(interaction: discord.Interaction):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ هذا الأمر مخصص للأونر فقط!", ephemeral=True)
-        return
-    
-    async with aiosqlite.connect("ticket_data.db") as db:
-        cursor = await db.execute("SELECT رسالة_العنوان, رسالة_الوصف, لون_الرسالة FROM اعدادات_السيرفر WHERE guild_id = ?", (str(interaction.guild_id),))
-        row = await cursor.fetchone()
-        if not row:
-            await interaction.response.send_message("❌ لم يتم إعداد البوت بعد! استخدم `/اعدادات` أولاً.", ephemeral=True)
-            return
-        title, desc, color = row
-        title = title or "🛡️ فتح تذكرة جديدة"
-        desc = desc or "اضغط على الزر أدناه لفتح تذكرة"
-        color = color or "5865F2"
-    
-    embed = discord.Embed(title=title, description=desc, color=int(color, 16))
-    view = TicketButton(title, desc, color)
-    await interaction.channel.send(embed=embed, view=view)
-    await interaction.response.send_message("✅ تم إرسال لوحة التذاكر!", ephemeral=True)
+        
+        await interaction.response.send_message("✅ تم تحديث رسالة لوحة التذاكر!", ephemeral=True)
+    except Exception as e:
+        print(f"خطأ في edit: {e}")
+        await interaction.response.send_message(f"❌ حدث خطأ: {str(e)}", ephemeral=True)
 
 @البوت.tree.command(name="about", description="معلومات عن البوت")
 async def about(interaction: discord.Interaction):
@@ -540,7 +495,7 @@ async def claim_ticket(interaction: discord.Interaction):
         await interaction.response.send_message("❌ ليس لديك صلاحية!", ephemeral=True)
         return
     async with aiosqlite.connect("ticket_data.db") as db:
-        await db.execute("UPDATE تذاكر SET status = 'claimed', claimer_id = ? WHERE channel_id = ?", (str(interaction.user.id), str(interaction.channel.id)))
+        await db.execute("UPDATE تذاكر SET status = 'claimed' WHERE channel_id = ?", (str(interaction.channel.id),))
         await db.commit()
     await interaction.response.send_message(f"✅ تم استلام التذكرة بواسطة {interaction.user.mention}")
 
@@ -577,23 +532,27 @@ async def notes(interaction: discord.Interaction, note: str):
 async def on_call(interaction: discord.Interaction):
     await interaction.response.send_message("✅ تم تفعيل وضع التنبيه. سيتم إشعارك عند فتح تذاكر جديدة.", ephemeral=True)
 
-@البوت.tree.command(name="open", description="فتح تذكرة جديدة")
+@البوت.tree.command(name="open", description="فتح تذكرة جديدة (إرسال اللوحة)")
 async def open_ticket(interaction: discord.Interaction):
-    async with aiosqlite.connect("ticket_data.db") as db:
-        cursor = await db.execute("SELECT رسالة_العنوان, رسالة_الوصف, لون_الرسالة FROM اعدادات_السيرفر WHERE guild_id = ?", (str(interaction.guild_id),))
-        row = await cursor.fetchone()
-        if not row:
-            await interaction.response.send_message("❌ لم يتم إعداد البوت بعد! استخدم `/اعدادات` أولاً.", ephemeral=True)
-            return
-        title, desc, color = row
-        title = title or "🛡️ فتح تذكرة جديدة"
-        desc = desc or "اضغط على الزر أدناه لفتح تذكرة"
-        color = color or "5865F2"
-    
-    embed = discord.Embed(title=title, description=desc, color=int(color, 16))
-    view = TicketButton(title, desc, color)
-    await interaction.channel.send(embed=embed, view=view)
-    await interaction.response.send_message("✅ تم إرسال لوحة التذاكر!", ephemeral=True)
+    try:
+        async with aiosqlite.connect("ticket_data.db") as db:
+            cursor = await db.execute("SELECT رسالة_العنوان, رسالة_الوصف, لون_الرسالة FROM اعدادات_السيرفر WHERE guild_id = ?", (str(interaction.guild_id),))
+            row = await cursor.fetchone()
+            if not row:
+                await interaction.response.send_message("❌ لم يتم إعداد البوت بعد! استخدم `/اعدادات` أولاً.", ephemeral=True)
+                return
+            title, desc, color = row
+            title = title or "🛡️ فتح تذكرة جديدة"
+            desc = desc or "اضغط على الزر أدناه لفتح تذكرة"
+            color = color or "5865F2"
+        
+        embed = discord.Embed(title=title, description=desc, color=int(color, 16))
+        view = TicketButton(title, desc, color)
+        await interaction.channel.send(embed=embed, view=view)
+        await interaction.response.send_message("✅ تم إرسال لوحة التذاكر!", ephemeral=True)
+    except Exception as e:
+        print(f"خطأ في open: {e}")
+        await interaction.response.send_message(f"❌ حدث خطأ: {str(e)}", ephemeral=True)
 
 @البوت.tree.command(name="remove", description="إزالة مستخدم من التذكرة")
 async def remove_user(interaction: discord.Interaction, user: discord.Member):
@@ -639,9 +598,6 @@ async def transfer_ticket(interaction: discord.Interaction, user: discord.Member
     if not await is_authorized(user):
         await interaction.response.send_message("❌ المستخدم المستهدف ليس موظفاً!", ephemeral=True)
         return
-    async with aiosqlite.connect("ticket_data.db") as db:
-        await db.execute("UPDATE تذاكر SET claimer_id = ?, status = 'claimed' WHERE channel_id = ?", (str(user.id), str(interaction.channel.id)))
-        await db.commit()
     await interaction.response.send_message(f"✅ تم نقل التذكرة إلى {user.mention}")
 
 @البوت.tree.command(name="unclaim", description="إلغاء استلام التذكرة")
@@ -650,7 +606,7 @@ async def unclaim_ticket(interaction: discord.Interaction):
         await interaction.response.send_message("❌ ليس لديك صلاحية!", ephemeral=True)
         return
     async with aiosqlite.connect("ticket_data.db") as db:
-        await db.execute("UPDATE تذاكر SET status = 'open', claimer_id = NULL WHERE channel_id = ?", (str(interaction.channel.id),))
+        await db.execute("UPDATE تذاكر SET status = 'open' WHERE channel_id = ?", (str(interaction.channel.id),))
         await db.commit()
     await interaction.response.send_message("✅ تم إلغاء استلام التذكرة")
 
@@ -666,31 +622,12 @@ async def add_admin(interaction: discord.Interaction, role: discord.Role):
     رتبة_التذاكر_المسموح_لها = role.id
     await interaction.response.send_message(f"✅ تم إضافة رتبة {role.mention} كمسؤول عن التذاكر")
 
-@البوت.tree.command(name="removeadmin", description="إزالة رتبة أونر")
-async def remove_admin(interaction: discord.Interaction, role: discord.Role):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ هذا الأمر مخصص للأونر فقط!", ephemeral=True)
-        return
-    async with aiosqlite.connect("ticket_data.db") as db:
-        await db.execute("UPDATE اعدادات_السيرفر SET رتبة_التذاكر = NULL WHERE guild_id = ?", (str(interaction.guild_id),))
-        await db.commit()
-    global رتبة_التذاكر_المسموح_لها
-    رتبة_التذاكر_المسموح_لها = 0
-    await interaction.response.send_message(f"✅ تم إزالة رتبة {role.mention} من مسؤولية التذاكر")
-
 @البوت.tree.command(name="addsupport", description="إضافة رتبة دعم")
 async def add_support(interaction: discord.Interaction, role: discord.Role):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("❌ هذا الأمر مخصص للأونر فقط!", ephemeral=True)
         return
     await interaction.response.send_message(f"✅ تم إضافة رتبة {role.mention} كفريق دعم")
-
-@البوت.tree.command(name="removesupport", description="إزالة رتبة دعم")
-async def remove_support(interaction: discord.Interaction, role: discord.Role):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ هذا الأمر مخصص للأونر فقط!", ephemeral=True)
-        return
-    await interaction.response.send_message(f"✅ تم إزالة رتبة {role.mention} من فريق الدعم")
 
 @البوت.tree.command(name="autoclose", description="إعداد الإغلاق التلقائي")
 async def auto_close(interaction: discord.Interaction, hours: int = 24):
@@ -713,6 +650,20 @@ async def set_language(interaction: discord.Interaction, lang: str):
         await interaction.response.send_message("❌ هذا الأمر مخصص للأونر فقط!", ephemeral=True)
         return
     await interaction.response.send_message(f"✅ تم تغيير اللغة إلى {'العربية' if lang == 'ar' else 'English'}")
+
+@البوت.tree.command(name="removeadmin", description="إزالة رتبة أونر")
+async def remove_admin(interaction: discord.Interaction, role: discord.Role):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ هذا الأمر مخصص للأونر فقط!", ephemeral=True)
+        return
+    await interaction.response.send_message(f"✅ تم إزالة رتبة {role.mention} من مسؤولية التذاكر")
+
+@البوت.tree.command(name="removesupport", description="إزالة رتبة دعم")
+async def remove_support(interaction: discord.Interaction, role: discord.Role):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ هذا الأمر مخصص للأونر فقط!", ephemeral=True)
+        return
+    await interaction.response.send_message(f"✅ تم إزالة رتبة {role.mention} من فريق الدعم")
 
 @البوت.tree.command(name="viewstaff", description="عرض قائمة الموظفين")
 async def view_staff(interaction: discord.Interaction):
@@ -774,21 +725,25 @@ async def use_tag(interaction: discord.Interaction, name: str):
 
 @البوت.tree.command(name="stats", description="إحصائيات البوت")
 async def stats(interaction: discord.Interaction):
-    async with aiosqlite.connect("ticket_data.db") as db:
-        cursor = await db.execute("SELECT COUNT(*) FROM تذاكر WHERE guild_id = ?", (str(interaction.guild_id),))
-        total = (await cursor.fetchone())[0]
-        cursor = await db.execute("SELECT COUNT(*) FROM تذاكر WHERE guild_id = ? AND status = 'open'", (str(interaction.guild_id),))
-        open_tickets = (await cursor.fetchone())[0]
-        cursor = await db.execute("SELECT COUNT(*) FROM تذاكر WHERE guild_id = ? AND status = 'claimed'", (str(interaction.guild_id),))
-        claimed = (await cursor.fetchone())[0]
-    
-    embed = discord.Embed(title="📊 إحصائيات البوت", color=0x5865F2)
-    embed.add_field(name="📋 إجمالي التذاكر", value=str(total), inline=True)
-    embed.add_field(name="🟢 مفتوحة", value=str(open_tickets), inline=True)
-    embed.add_field(name="🟡 مستلمة", value=str(claimed), inline=True)
-    embed.add_field(name="👑 عدد المستخدمين", value=str(len(بيانات_المستخدمين)), inline=True)
-    embed.set_footer(text=f"الاصدار 1.2")
-    await interaction.response.send_message(embed=embed)
+    try:
+        async with aiosqlite.connect("ticket_data.db") as db:
+            cursor = await db.execute("SELECT COUNT(*) FROM تذاكر WHERE guild_id = ?", (str(interaction.guild_id),))
+            total = (await cursor.fetchone())[0]
+            cursor = await db.execute("SELECT COUNT(*) FROM تذاكر WHERE guild_id = ? AND status = 'open'", (str(interaction.guild_id),))
+            open_tickets = (await cursor.fetchone())[0]
+            cursor = await db.execute("SELECT COUNT(*) FROM تذاكر WHERE guild_id = ? AND status = 'claimed'", (str(interaction.guild_id),))
+            claimed = (await cursor.fetchone())[0]
+        
+        embed = discord.Embed(title="📊 إحصائيات البوت", color=0x5865F2)
+        embed.add_field(name="📋 إجمالي التذاكر", value=str(total), inline=True)
+        embed.add_field(name="🟢 مفتوحة", value=str(open_tickets), inline=True)
+        embed.add_field(name="🟡 مستلمة", value=str(claimed), inline=True)
+        embed.add_field(name="👑 عدد المستخدمين", value=str(len(بيانات_المستخدمين)), inline=True)
+        embed.set_footer(text=f"الاصدار 1.2")
+        await interaction.response.send_message(embed=embed)
+    except Exception as e:
+        print(f"خطأ في stats: {e}")
+        await interaction.response.send_message(f"❌ حدث خطأ: {str(e)}", ephemeral=True)
 
 @البوت.tree.command(name="رصيدي", description="عرض رصيدك")
 async def رصيدي(interaction: discord.Interaction):
@@ -1045,49 +1000,53 @@ class WeaponSelect(discord.ui.Select):
         super().__init__(placeholder="اختر سلاحك...", options=options)
     
     async def callback(self, interaction: discord.Interaction):
-        weapon_id = int(self.values[0])
-        weapon = next((w for w in self.weapons if w["id"] == weapon_id), None)
-        if not weapon:
-            await interaction.response.send_message("❌ حدث خطأ!", ephemeral=True)
-            return
-        
-        attacker = str(self.attacker_id)
-        target_id = str(self.target.id)
-        
-        attacker_data = init_user(attacker)
-        target_data = init_user(target_id)
-        
-        attacker_team = attacker_data["active_team"]
-        target_team = target_data["active_team"]
-        
-        _, target_hp, target_inv = get_team(target_id, target_team, True)
-        
-        if target_inv > time.time():
-            await interaction.response.send_message(f"❌ فريق {self.target.display_name} في حالة تخفي!", ephemeral=True)
-            return
-        if target_hp <= 0:
-            await interaction.response.send_message(f"❌ فريق {self.target.display_name} هُزم!", ephemeral=True)
-            return
-        
-        new_hp = max(0, target_hp - weapon["damage"])
-        update_team_health(target_id, target_team, new_hp)
-        advance_mission_progress(attacker, "اهاجم")
-        
-        embed = discord.Embed(title="⚔️ نتيجة الهجوم", color=0xFF4500)
-        embed.add_field(name="المهاجم", value=f"{interaction.user.display_name}", inline=False)
-        embed.add_field(name="الخصم", value=f"{self.target.display_name}", inline=False)
-        embed.add_field(name="السلاح", value=weapon["name"], inline=True)
-        embed.add_field(name="الضرر", value=str(weapon["damage"]), inline=True)
-        embed.add_field(name="HP المتبقية", value=str(new_hp), inline=True)
-        if new_hp == 0:
-            embed.add_field(name="💀 النتيجة", value="تم هزيمة الفريق!", inline=False)
-        
         try:
-            await self.target.send(f"⚔️ تعرض فريقك للهجوم من {interaction.user.display_name} باستخدام {weapon['name']}!\n💥 الضرر: {weapon['damage']}\n❤️ HP المتبقي: {new_hp}")
-        except:
-            pass
-        
-        await interaction.response.send_message(embed=embed)
+            weapon_id = int(self.values[0])
+            weapon = next((w for w in self.weapons if w["id"] == weapon_id), None)
+            if not weapon:
+                await interaction.response.send_message("❌ حدث خطأ!", ephemeral=True)
+                return
+            
+            attacker = str(self.attacker_id)
+            target_id = str(self.target.id)
+            
+            attacker_data = init_user(attacker)
+            target_data = init_user(target_id)
+            
+            attacker_team = attacker_data["active_team"]
+            target_team = target_data["active_team"]
+            
+            _, target_hp, target_inv = get_team(target_id, target_team, True)
+            
+            if target_inv > time.time():
+                await interaction.response.send_message(f"❌ فريق {self.target.display_name} في حالة تخفي!", ephemeral=True)
+                return
+            if target_hp <= 0:
+                await interaction.response.send_message(f"❌ فريق {self.target.display_name} هُزم!", ephemeral=True)
+                return
+            
+            new_hp = max(0, target_hp - weapon["damage"])
+            update_team_health(target_id, target_team, new_hp)
+            advance_mission_progress(attacker, "اهاجم")
+            
+            embed = discord.Embed(title="⚔️ نتيجة الهجوم", color=0xFF4500)
+            embed.add_field(name="المهاجم", value=f"{interaction.user.display_name}", inline=False)
+            embed.add_field(name="الخصم", value=f"{self.target.display_name}", inline=False)
+            embed.add_field(name="السلاح", value=weapon["name"], inline=True)
+            embed.add_field(name="الضرر", value=str(weapon["damage"]), inline=True)
+            embed.add_field(name="HP المتبقية", value=str(new_hp), inline=True)
+            if new_hp == 0:
+                embed.add_field(name="💀 النتيجة", value="تم هزيمة الفريق!", inline=False)
+            
+            try:
+                await self.target.send(f"⚔️ تعرض فريقك للهجوم من {interaction.user.display_name} باستخدام {weapon['name']}!\n💥 الضرر: {weapon['damage']}\n❤️ HP المتبقي: {new_hp}")
+            except:
+                pass
+            
+            await interaction.response.send_message(embed=embed)
+        except Exception as e:
+            print(f"خطأ في الهجوم: {e}")
+            await interaction.response.send_message(f"❌ حدث خطأ: {str(e)}", ephemeral=True)
 
 @البوت.tree.command(name="هجوم", description="مهاجمة لاعب آخر")
 async def هجوم(interaction: discord.Interaction, target: discord.Member):
