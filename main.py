@@ -91,13 +91,13 @@ async def load_extensions():
     except Exception as e:
         logger.error(f"❌ فشل تحميل management: {e}")
 
-@bot.event
+@البوت.event
 async def on_ready():
-    logger.info(f"✅ تم تشغيل البوت: {bot.user}")
-    logger.info(f"📊 عدد السيرفرات: {len(bot.guilds)}")
+    logger.info(f"✅ تم تشغيل البوت: {البوت.user}")
+    logger.info(f"📊 عدد السيرفرات: {len(البوت.guilds)}")
     await load_extensions()
     try:
-        synced = await bot.tree.sync()
+        synced = await البوت.tree.sync()
         logger.info(f"📡 تم مزامنة {len(synced)} أمر")
     except Exception as e:
         logger.error(f"❌ خطأ في المزامنة: {e}")
@@ -106,7 +106,7 @@ async def on_ready():
 async def main():
     try:
         logger.info("🚀 بدء تشغيل البوت...")
-        await bot.start(التوكن)
+        await البوت.start(التوكن)
     except discord.LoginFailure:
         logger.error("❌ فشل تسجيل الدخول: التوكن غير صالح")
         sys.exit(1)
