@@ -7,7 +7,6 @@ import asyncio
 import threading
 from flask import Flask
 
-# ==================== إعداد السجل ====================
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -20,7 +19,6 @@ def handle_exception(exc_type, exc_value, exc_traceback):
 
 sys.excepthook = handle_exception
 
-# ==================== سيرفر وهمي لـ Render ====================
 تطبيق_فلاسك = Flask(__name__)
 
 @تطبيق_فلاسك.route('/')
@@ -31,7 +29,6 @@ def تشغيل_السيرفر_الوهمي():
     المنفذ = int(os.getenv("PORT", 8080))
     تطبيق_فلاسك.run(host='0.0.0.0', port=المنفذ)
 
-# ==================== استيراد discord.py ====================
 try:
     import discord
     from discord.ext import commands
@@ -40,7 +37,6 @@ except Exception as e:
     logger.error(f"❌ فشل في استيراد discord.py: {e}")
     sys.exit(1)
 
-# ==================== التوكن ====================
 التوكن = os.getenv("DISCORD_TOKEN")
 if not التوكن:
     logger.error("❌ DISCORD_TOKEN غير موجود في متغيرات البيئة")
@@ -48,7 +44,6 @@ if not التوكن:
 
 logger.info(f"✅ تم العثور على التوكن (يبدأ بـ: {التوكن[:10]}...)")
 
-# ==================== إنشاء البوت ====================
 try:
     الصلاحيات = discord.Intents.default()
     الصلاحيات.message_content = True
@@ -59,7 +54,6 @@ except Exception as e:
     logger.error(f"❌ فشل في إنشاء البوت: {e}")
     sys.exit(1)
 
-# ==================== EmbedHelper ====================
 class EmbedHelper:
     @staticmethod
     def create(title=None, description=None, color=None, fields=None, footer_text=None, image_url=None, thumbnail_url=None, author_name=None, author_icon=None):
@@ -85,22 +79,17 @@ class EmbedHelper:
         try:
             embed = EmbedHelper.create(title=title, description=description, color=color, fields=fields, footer_text=footer_text, image_url=image_url, thumbnail_url=thumbnail_url, author_name=author_name, author_icon=author_icon)
             if hasattr(target, 'response'):
-                if target.response.is_done(): await target.followup.send(embed=embed, ephemeral=is_ephemeral, view=view)
-                else: await target.response.send_message(embed=embed, ephemeral=is_ephemeral, view=view)
-            else: await target.send(embed=embed, view=view)
+                if target.response.is_done():
+                    await target.followup.send(embed=embed, ephemeral=is_ephemeral, view=view)
+                else:
+                    await target.response.send_message(embed=embed, ephemeral=is_ephemeral, view=view)
+            else:
+                await target.send(embed=embed, view=view)
             return embed
         except Exception as e:
             logger.error(f"❌ EmbedHelper.send: {e}")
-            try:
-                fb = discord.Embed(description="حدث خطأ.", color=0xFF0000)
-                if hasattr(target, 'response'):
-                    if target.response.is_done(): await target.followup.send(embed=fb, ephemeral=True)
-                    else: await target.response.send_message(embed=fb, ephemeral=True)
-                else: await target.send(embed=fb)
-            except: pass
             return None
 
-# ==================== تحميل الإضافات ====================
 async def load_extensions():
     try:
         await البوت.load_extension("management")
@@ -124,7 +113,6 @@ async def main():
     try:
         threading.Thread(target=تشغيل_السيرفر_الوهمي, daemon=True).start()
         logger.info("🌐 تم تشغيل السيرفر الوهمي")
-        
         logger.info("🚀 بدء تشغيل البوت...")
         await البوت.start(التوكن)
     except discord.LoginFailure:
@@ -132,7 +120,6 @@ async def main():
         sys.exit(1)
     except discord.PrivilegedIntentsRequired:
         logger.error("❌ الصلاحيات المميزة غير مفعلة")
-        logger.error("اذهب إلى Discord Developer Portal > Bot > وقم بتفعيل Message Content Intent و Server Members Intent")
         sys.exit(1)
     except Exception as e:
         logger.error(f"❌ خطأ غير متوقع: {type(e).__name__}: {e}")
@@ -146,5 +133,4 @@ if __name__ == "__main__":
         logger.info("⏹️ تم إيقاف البوت يدوياً")
     except Exception as e:
         logger.error(f"❌ خطأ في تشغيل البوت: {type(e).__name__}: {e}")
-        logger.error(traceback.format_exc())
         sys.exit(1)
