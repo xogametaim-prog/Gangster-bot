@@ -1,7 +1,6 @@
 {
   "name": "gangster-bot",
   "version": "1.0.0",
-  "description": "Bot Advisor & Giveaway Master",
   "main": "main.js",
   "scripts": {
     "start": "node main.js"
@@ -9,6 +8,6 @@
   "dependencies": {
     "discord.js": "^14.14.1",
     "express": "^4.19.2",
-    "better-sqlite3": "^11.7.0"
+    "@google/generative-ai": "^0.1.1"
   }
 }
