@@ -27,7 +27,7 @@ const client = new Client({
 // ==================== Gemini AI Setup ====================
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
-const aiModel = genAI ? genAI.getGenerativeModel({ model: 'gemini-pro' }) : null;
+const aiModel = genAI ? genAI.getGenerativeModel({ model: 'gemini-1.5-flash' }) : null;
 
 const aiChatHistory = new Map();
 
@@ -158,7 +158,6 @@ async function startGuessGame(channel, language) {
 
   await channel.send({ embeds: [embed] });
 
-  // Fake AI players
   fakePlayers.forEach(player => {
     const interval = setInterval(() => {
       if (gameData.ended) {
@@ -261,7 +260,6 @@ client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
   if (!message.guild) return;
 
-  // Guess game listener
   const game = activeGames.get(message.channel.id);
   if (game && !game.ended) {
     const guess = parseInt(message.content.trim());
@@ -285,7 +283,6 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  // AI Chat: mention or ai-chat channel
   const isMentioned = message.mentions.has(client.user);
   const isAiChannel = message.channel.name === 'ai-chat';
 
