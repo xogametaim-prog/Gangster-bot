@@ -1,13 +1,24 @@
 const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const express = require('express');
+const Database = require('better-sqlite3');
 
-// إعداد خادم ويب لمنصة Render للحفاظ على استمرارية البوت
+// 1️⃣ إعداد خادم الويب لمنصة Render
 const app = express();
 const port = process.env.PORT || 10000;
-app.get('/', (req, res) => res.send('World Cup 2026 Bot Is Online!'));
+app.get('/', (req, res) => res.send('World Cup 2026 Bot v1.2 Is Online!'));
 app.listen(port, () => console.log(`Web server listening on port ${port}`));
 
-// إنشاء العميل مع النوايا المطلوبة لقراءة الرسائل في الشات
+// 2️⃣ إعداد قاعدة البيانات لحفظ نقاط المتصدرين (Leaderboard)
+const db = new Database('leaderboard.db');
+db.prepare(`
+    CREATE TABLE IF NOT EXISTS users (
+        userId TEXT PRIMARY KEY,
+        username TEXT,
+        points INTEGER DEFAULT 0
+    )
+`).run();
+
+// 3️⃣ إنشاء عميل الديسكورد مع النوايا المطلوبة
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -16,232 +27,197 @@ const client = new Client({
     ]
 });
 
-// الإصدار واسم البوت
-const BOT_NAME = "World Cup 2026 Bot";
-const BOT_VERSION = "v1.2";
-
-// بيانات الأعلام والدول تدعم العربي والإنجليزي (تخطي حالة الأحرف للإنجليزي تلقائياً في الكود)
-const gameData = [
-    { arabic: "المغرب", english: "morocco", flagUrl: "https://flagcdn.com/w640/ma.png" },
-    { arabic: "السعودية", english: "saudi arabia", flagUrl: "https://flagcdn.com/w640/sa.png" },
-    { arabic: "مصر", english: "egypt", flagUrl: "https://flagcdn.com/w640/eg.png" },
-    { arabic: "الأرجنتين", english: "argentina", flagUrl: "https://flagcdn.com/w640/ar.png" },
-    { arabic: "فرنسا", english: "france", flagUrl: "https://flagcdn.com/w640/fr.png" },
-    { arabic: "البرازيل", english: "brazil", flagUrl: "https://flagcdn.com/w640/br.png" },
-    { arabic: "المكسيك", english: "mexico", flagUrl: "https://flagcdn.com/w640/mx.png" },
-    { arabic: "أمريكا", english: "usa", flagUrl: "https://flagcdn.com/w640/us.png" },
-    { arabic: "كندا", english: "canada", flagUrl: "https://flagcdn.com/w640/ca.png" }
-];
-
-// مصفوفة المجموعات والأفرقة المشاركة في كأس العالم 2026
-const teamsData = {
-    ar: [
-        { group: "المجموعة A", teams: "🇲🇽 المكسيك، 🇺🇸 أمريكا، 🇨🇦 كندا + بقية المتأهلين قريباً" },
-        { group: "المجموعة B", teams: "تحدد المجموعات الكاملة فور انتهاء التصفيات النهائية" }
-    ],
-    en: [
-        { group: "Group A", teams: "🇲🇽 Mexico, 🇺🇸 USA, 🇨🇦 Canada + other qualifiers soon" },
-        { group: "Group B", teams: "Full groups will be updated post-qualifiers" }
-    ]
-};
-
+const BOT_NAME = "world cup 2026 bot";
+const BOT_VERSION = "1.2v";
 const activeGames = new Set();
 
+// 4️⃣ بيانات الأعلام والدول (يدعم الإجابة باللغتين)
+const gameData = [
+    { countryAr: "المغرب", countryEn: "morocco", flagUrl: "https://flagcdn.com/w640/ma.png" },
+    { countryAr: "السعودية", countryEn: "saudi arabia", flagUrl: "https://flagcdn.com/w640/sa.png" },
+    { countryAr: "مصر", countryEn: "egypt", flagUrl: "https://flagcdn.com/w640/eg.png" },
+    { countryAr: "الأرجنتين", countryEn: "argentina", flagUrl: "https://flagcdn.com/w640/ar.png" },
+    { countryAr: "فرنسا", countryEn: "france", flagUrl: "https://flagcdn.com/w640/fr.png" },
+    { countryAr: "البرازيل", countryEn: "brazil", flagUrl: "https://flagcdn.com/w640/br.png" },
+    { countryAr: "المكسيك", countryEn: "mexico", flagUrl: "https://flagcdn.com/w640/mx.png" },
+    { countryAr: "أمريكا", countryEn: "usa", flagUrl: "https://flagcdn.com/w640/us.png" },
+    { countryAr: "كندا", countryEn: "canada", flagUrl: "https://flagcdn.com/w640/ca.png" }
+];
+
+// 5️⃣ قائمة المجموعات والفرق المشاركة كمثال
+const teamsData = {
+    ar: "🏆 **الفرق المشاركة المبرمجة حالياً في المجموعات الأولية:**\n• **المجموعة أ:** المكسيك، كندا، أمريكا\n• **المجموعة ب:** الأرجنتين، فرنسا، البرازيل، المغرب، مصر، السعودية.",
+    en: "🏆 **Currently programmed teams in preliminary groups:**\n• **Group A:** Mexico, Canada, USA\n• **Group B:** Argentina, France, Brazil, Morocco, Egypt, Saudi Arabia."
+};
+
+// 6️⃣ تسجيل الأوامر عند تشغيل البوت
 client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}! Version: ${BOT_VERSION}`);
 
-    // بناء الأوامر وتسجيلها في الديسكورد
     const commands = [
-        // 1. أمر المساعدة بلغتين
         new SlashCommandBuilder()
             .setName('help')
-            .setDescription('عرض قائمة المساعدة والأوامر / View help list')
-            .addStringOption(option => 
-                option.setName('language')
-                    .setDescription('اختر اللغة / Choose language')
-                    .setRequired(true)
-                    .addChoices(
-                        { name: 'العربية', value: 'ar' },
-                        { name: 'English', value: 'en' }
-                    )),
-
-        // 2. أمر الأفرقة المشاركة بلغتين
+            .setDescription('عرض قائمة المساعدة والدعم لغتين / Show help menu'),
+        
         new SlashCommandBuilder()
             .setName('teams')
-            .setDescription('عرض المجموعات والأفرقة / View teams and groups')
-            .addStringOption(option => 
-                option.setName('language')
-                    .setDescription('اختر اللغة / Choose language')
-                    .setRequired(true)
-                    .addChoices(
-                        { name: 'العربية', value: 'ar' },
-                        { name: 'English', value: 'en' }
-                    )),
+            .setDescription('عرض الفرق المشاركة بكأس العالم / Show participating teams'),
 
-        // 3. لعبة احزر العلم
         new SlashCommandBuilder()
-            .setName('احزر-العلم')
-            .setDescription('شغل لعبة تخمين علم الدولة في الشات (يدعم عربي/إنجليزي)'),
+            .setName('guess-flag')
+            .setDescription('شغل لعبة تخمين العلم (عربي/إنجليزي)'),
 
-        // 4. العداد التنازلي للمونديال
         new SlashCommandBuilder()
-            .setName('مونديال-2026')
-            .setDescription('حساب الوقت المتبقي لافتتاح كأس العالم 2026 في المكسيك'),
+            .setName('countdown')
+            .setDescription('العد التنازلي لافتتاح كأس العالم / World Cup Countdown'),
 
-        // 5. أمر إرسال رسائل إمبد (مخصص للمشرفين فقط لحماية السيرفر)
         new SlashCommandBuilder()
-            .setName('send-embed')
-            .setDescription('إرسال رسالة إمبد مخصصة من خلال البوت')
+            .setName('leaderboard')
+            .setDescription('عرض قائمة متصدري لعبة التخمين / Show Leaderboard'),
+
+        new SlashCommandBuilder()
+            .setName('embed')
+            .setDescription('إرسال رسالة إمبد مخصصة (للإدارة فقط)')
             .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
-            .addStringOption(option => option.setName('title').setDescription('عنوان رسالة الإمبد').setRequired(true))
-            .addStringOption(option => option.setName('description').setDescription('محتوى ووصف الرسالة').setRequired(true))
-            .addStringOption(option => 
-                option.setName('color')
-                    .setDescription('اختر لون الإمبد')
-                    .setRequired(false)
-                    .addChoices(
-                        { name: 'أزرق', value: 'Blue' },
-                        { name: 'أخضر', value: 'Green' },
-                        { name: 'أحمر', value: 'Red' },
-                        { name: 'ذهبي', value: 'Gold' }
-                    ))
-    ].map(command => command.toJSON());
+            .addStringOption(opt => opt.setName('title').setDescription('عنوان الرسالة').setRequired(true))
+            .addStringOption(opt => opt.setName('description').setDescription('محتوى أو نص الرسالة').setRequired(true))
+            .addStringOption(opt => opt.setName('color').setDescription('اللون بالهكس مثال: #ff0000').setRequired(false))
+    ].map(cmd => cmd.toJSON());
 
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
-
     try {
-        console.log('Started refreshing application (/) commands.');
         await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-        console.log('Successfully reloaded application (/) commands.');
+        console.log('Successfully registered all Slash Commands.');
     } catch (error) {
         console.error(error);
     }
 });
 
+// 7️⃣ دالة تشغيل لعبة التخمين (مفصولة لتشغيلها بالـ Slash وبالاختصار)
+async function startFlagGame(channel, replyTarget = null) {
+    if (activeGames.has(channel.id)) {
+        const msg = '❌ هناك لعبة قائمة بالفعل في هذه القناة!';
+        return replyTarget ? replyTarget.editReply({ content: msg }) : channel.send(msg);
+    }
+
+    activeGames.add(channel.id);
+    const chosen = gameData[Math.floor(Math.random() * gameData.length)];
+
+    const gameEmbed = new EmbedBuilder()
+        .setTitle('🤔 خمن اسم الدولة صاحبة هذا العلم / Guess the Country!')
+        .setDescription('⏱️ لديك **15 ثانية** فقط للإجابة الصحيحة!\nYou have **15 seconds** to answer! (العربية / English)')
+        .setImage(chosen.flagUrl)
+        .setColor(0xE67E22)
+        .setFooter({ text: `${BOT_NAME} v${BOT_VERSION}` });
+
+    if (replyTarget) {
+        await replyTarget.editReply({ embeds: [gameEmbed] });
+    } else {
+        await channel.send({ embeds: [gameEmbed] });
+    }
+
+    // مجمع الرسائل: يقبل الإجابة سواء كانت بالعربي أو بالإنجليزي (تجاهل حالة الأحرف للإنجليزي)
+    const filter = res => {
+        const ans = res.content.trim().toLowerCase();
+        return ans === chosen.countryAr || ans === chosen.countryEn;
+    };
+
+    const collector = channel.createMessageCollector({ filter, time: 15000, max: 1 });
+    let won = false;
+
+    collector.on('collect', async m => {
+        won = true;
+        
+        // إضافة نقطة للاعب في قاعدة البيانات
+        const userId = m.author.id;
+        const username = m.author.username;
+        
+        const row = db.prepare('SELECT points FROM users WHERE userId = ?').get(userId);
+        if (row) {
+            db.prepare('UPDATE users SET points = points + 1, username = ? WHERE userId = ?').run(username, userId);
+        } else {
+            db.prepare('INSERT INTO users (userId, username, points) VALUES (?, ?, 1)').run(userId, username);
+        }
+
+        const successEmbed = new EmbedBuilder()
+            .setTitle('🎉 إجابة صحيحة / Correct Answer!')
+            .setDescription(`🏆 البطل **${m.author}** عرف الإجابة!\nالدولة هي: **${chosen.countryAr}** | **${chosen.countryEn.toUpperCase()}**\nتم إضافة +1 نقطة إلى رصيدك!`)
+            .setColor(0x2ECC71)
+            .setThumbnail(chosen.flagUrl);
+        
+        await channel.send({ embeds: [successEmbed] });
+        collector.stop();
+    });
+
+    collector.on('end', () => {
+        activeGames.delete(channel.id);
+        if (!won) {
+            const timeoutEmbed = new EmbedBuilder()
+                .setTitle('⏱️ انتهى الوقت / Time is Up!')
+                .setDescription(`الإجابة الصحيحة كانت: **${chosen.countryAr}** / **${chosen.countryEn.toUpperCase()}** 😔`)
+                .setColor(0xE74C3C)
+                .setThumbnail(chosen.flagUrl);
+            channel.send({ embeds: [timeoutEmbed] });
+        }
+    });
+}
+
+// 8️⃣ استقبال رسائل الشات العادية واختصار اللعبة (.w)
+client.on('messageCreate', async message => {
+    if (message.author.bot || !message.guild) return;
+
+    // اختصار لعبة احزر العلم
+    if (message.content.trim().toLowerCase() === '.w') {
+        await startFlagGame(message.channel);
+    }
+});
+
+// 9️⃣ معالجة أوامر الـ Slash Commands
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
-    const { commandName, channelId, options } = interaction;
+    const { commandName, options, channel } = interaction;
 
-    // 1️⃣ أمر المساعدة (Help)
+    // أمر المساعدة بدعم اللغتين
     if (commandName === 'help') {
         await interaction.deferReply();
-        const lang = options.getString('language');
-
-        const embed = new EmbedBuilder()
-            .setThumbnail(client.user.displayAvatarURL())
-            .setFooter({ text: `${BOT_NAME} • ${BOT_VERSION}` });
-
-        if (lang === 'ar') {
-            embed.setTitle('📋 قائمة أوامر البوت')
-                .setDescription(`مرحباً بك في بوت كأس العالم 2026 المطور! إليك الأوامر المتاحة:`)
-                .setColor(0x2ECC71)
-                .addFields(
-                    { name: '🔹 `/help`', value: 'عرض هذه القائمة واختيار اللغة.' },
-                    { name: '🔹 `/teams`', value: 'عرض المجموعات والأفرقة المشاركة.' },
-                    { name: '🔹 `/احزر-العلم`', value: 'بدء لعبة تخمين أعلام الدول (تقبل عربي أو إنجليزي).' },
-                    { name: '🔹 `/مونديال-2026`', value: 'عداد تنازلي دقيق حتى موعد انطلاق البطولة.' },
-                    { name: '🔹 `/send-embed`', value: 'إرسال رسالة إمبد منسقة (للمشرفين فقط).' }
-                );
-        } else {
-            embed.setTitle('📋 Bot Commands List')
-                .setDescription(`Welcome to the advanced World Cup 2026 Bot! Here are the available commands:`)
-                .setColor(0x3498DB)
-                .addFields(
-                    { name: '🔹 `/help`', value: 'Show this list and select language.' },
-                    { name: '🔹 `/teams`', value: 'Display tournament groups and qualified teams.' },
-                    { name: '🔹 `/احزر-العلم`', value: 'Start guessing the flag game (Accepts Arabic or English).' },
-                    { name: '🔹 `/مونديال-2026`', value: 'Live countdown timer until the tournament kickoff.' },
-                    { name: '🔹 `/send-embed`', value: 'Send a custom formatted embed message (Staff only).' }
-                );
-        }
-        await interaction.editReply({ embeds: [embed] });
+        const helpEmbed = new EmbedBuilder()
+            .setTitle(`📖 قائمة مساعدة ${BOT_NAME}`)
+            .setDescription(`مرحباً بك! إليك الأوامر المتاحة في الإصدار ${BOT_VERSION}:`)
+            .addFields(
+                { name: '⚽ أوامر كأس العالم', value: '`/teams` - عرض الفرق المشاركة\n`/countdown` - مؤقت الافتتاح التنازلي', inline: true },
+                { name: '🎮 ألعاب وتسلية', value: '`/guess-flag` أو الاختصار `.w` - بدء اللعبة\n`/leaderboard` - قائمة المتصدرين', inline: true },
+                { name: '🛠️ الإدارة', value: '`/embed` - إرسال رسالة إمبد منسقة', inline: false }
+            )
+            .setColor(0x9B59B6)
+            .setFooter({ text: `Requested by ${interaction.user.username}` });
+        await interaction.editReply({ embeds: [helpEmbed] });
     }
 
-    // 2️⃣ أمر الأفرقة المشاركة (Teams)
+    // أمر الأفرقة المشاركة
     if (commandName === 'teams') {
         await interaction.deferReply();
-        const lang = options.getString('language');
-        
-        const embed = new EmbedBuilder()
-            .setColor(lang === 'ar' ? 0x27AE60 : 0xE74C3C)
-            .setFooter({ text: `${BOT_NAME} • ${BOT_VERSION}` });
-
-        if (lang === 'ar') {
-            embed.setTitle('⚽ المجموعات والمنتخبات المشاركة بكأس العالم 2026');
-            teamsData.ar.forEach(g => embed.addFields({ name: g.group, value: g.teams }));
-        } else {
-            embed.setTitle('⚽ World Cup 2026 Groups & Teams');
-            teamsData.en.forEach(g => embed.addFields({ name: g.group, value: g.teams }));
-        }
-        await interaction.editReply({ embeds: [embed] });
+        const teamsEmbed = new EmbedBuilder()
+            .setTitle('🌍 الفرق المشاركة / Participating Teams')
+            .setDescription(`${teamsData.ar}\n\n${teamsData.en}`)
+            .setColor(0x1ABC9C);
+        await interaction.editReply({ embeds: [teamsEmbed] });
     }
 
-    // 3️⃣ لعبة احزر العلم (يدعم اللغتين)
-    if (commandName === 'احزر-العلم') {
-        if (activeGames.has(channelId)) {
-            return interaction.reply({ content: '❌ هناك لعبة قائمة بالفعل في هذه القناة، انتظر حتى تنتهي!', ephemeral: true });
-        }
-
+    // أمر بدء لعبة التخمين
+    if (commandName === 'guess-flag') {
         await interaction.deferReply();
-        activeGames.add(channelId);
-
-        const chosen = gameData[Math.floor(Math.random() * gameData.length)];
-
-        const gameEmbed = new EmbedBuilder()
-            .setTitle('🤔 خمن اسم الدولة صاحبة هذا العلم!')
-            .setDescription('⏱️ لديك **15 ثانية** فقط!\n💡 يمكنك كتابة الإجابة بـ **العربية** أو **الإنجليزية**.')
-            .setImage(chosen.flagUrl)
-            .setColor(0xE67E22)
-            .setFooter({ text: `${BOT_NAME} • لعبة التخمين` });
-
-        await interaction.editReply({ embeds: [gameEmbed] });
-
-        // مجمع للتحقق من النص بالعربي أو بالإنجليزي (تجاهل الفراغات وحالة الأحرف)
-        const filter = response => {
-            const answer = response.content.trim().toLowerCase();
-            return answer === chosen.arabic || answer === chosen.english;
-        };
-
-        const collector = interaction.channel.createMessageCollector({ filter, time: 15000, max: 1 });
-        let won = false;
-
-        collector.on('collect', async m => {
-            won = true;
-            const successEmbed = new EmbedBuilder()
-                .setTitle('🎉 إجابة صحيحة كفو!')
-                .setDescription(`البطل **${m.author}** عرف الإجابة الصحيحة وهي: **${chosen.arabic}** (${chosen.english.toUpperCase()}) 🏆`)
-                .setColor(0x2ECC71)
-                .setThumbnail(chosen.flagUrl);
-            
-            await interaction.followUp({ embeds: [successEmbed] });
-            collector.stop();
-        });
-
-        collector.on('end', async () => {
-            activeGames.delete(channelId);
-            if (!won) {
-                const timeoutEmbed = new EmbedBuilder()
-                    .setTitle('⏱️ انتهى الوقت!')
-                    .setDescription(`لأسف لم يعرف أحد الإجابة الصحيحة. 😔\n\nالدولة هي: **${chosen.arabic}** | **${chosen.english.toUpperCase()}**`)
-                    .setColor(0xE74C3C)
-                    .setThumbnail(chosen.flagUrl);
-
-                await interaction.followUp({ embeds: [timeoutEmbed] });
-            }
-        });
+        await startFlagGame(channel, interaction);
     }
 
-    // 4️⃣ العداد التنازلي لكأس العالم 2026
-    if (commandName === 'مونديال-2026') {
+    // أمر العد التنازلي
+    if (commandName === 'countdown') {
         await interaction.deferReply();
-
-        const worldCupDate = new Date('2026-06-11T18:00:00Z'); 
-        const now = new Date();
-        const difference = worldCupDate - now;
+        const worldCupDate = new Date('2026-06-11T18:00:00Z');
+        const difference = worldCupDate - new Date();
 
         if (difference <= 0) {
-            return interaction.editReply({ content: '🎉 انطلقت بطولة كأس العالم 2026 الجارية الآن في المكسيك وأمريكا وكندا! ⚽🏆' });
+            return interaction.editReply({ content: '🎉 انطلقت بطولة كأس العالم 2026 بالفعل الآن! ⚽🏆' });
         }
 
         const days = Math.floor(difference / (1000 * 60 * 60 * 24));
@@ -249,38 +225,65 @@ client.on('interactionCreate', async interaction => {
         const minutes = Math.floor((difference % (1000 * 60 * 60)) / (1000 * 60));
         const seconds = Math.floor((difference % (1000 * 60)) / 1000);
 
-        const countdownEmbed = new EmbedBuilder()
-            .setTitle('🏆 العداد التنازلي لبطولة كأس العالم 2026 ⚽')
-            .setDescription('المباراة الافتتاحية ستنطلق في المكسيك بملعب أزتيكا التاريخي العريق!')
-            .addFields({ name: '⏳ الوقت المتبقي للبطولة:', value: `**${days}** يوم و **${hours}** ساعة و **${minutes}** دقيقة و **${seconds}** ثانية` })
+        const cdEmbed = new EmbedBuilder()
+            .setTitle('🏆 العداد التنازلي لكأس العالم 2026 ⚽')
+            .addFields({ 
+                name: '⏳ المتبقي على مباراة الافتتاح في المكسيك:', 
+                value: `**${days}** يوم و **${hours}** ساعة و **${minutes}** دقيقة و **${seconds}** ثانية` 
+            })
             .setColor(0x3498DB)
-            .setThumbnail('https://flagcdn.com/w640/mx.png')
-            .setFooter({ text: `${BOT_NAME} • العداد الزمني` });
-
-        await interaction.editReply({ embeds: [countdownEmbed] });
+            .setFooter({ text: `${BOT_NAME}` });
+        await interaction.editReply({ embeds: [cdEmbed] });
     }
 
-    // 5️⃣ أمر إرسال رسائل إمبد مخصصة (/send-embed)
-    if (commandName === 'send-embed') {
-        const title = options.getString('title');
-        const description = options.getString('description');
-        const colorName = options.getString('color') || 'Blue';
+    // أمر المتصدرين (Leaderboard)
+    if (commandName === 'leaderboard') {
+        await interaction.deferReply();
+        const rows = db.prepare('SELECT username, points FROM users ORDER BY points DESC LIMIT 10').all();
 
-        // خريطة تحويل الألوان
-        const colors = { 'Blue': 0x3498DB, 'Green': 0x2ECC71, 'Red': 0xE74C3C, 'Gold': 0xF1C40F };
+        if (rows.length === 0) {
+            return interaction.editReply({ content: '📊 لا توجد نقاط مسجلة حتى الآن، كن أول من يفوز باستخدام `.w`!' });
+        }
+
+        let description = "🏆 **أعلى 10 لاعبين في لوحة الصدارة:**\n\n";
+        rows.forEach((row, index) => {
+            let medal = `${index + 1}.`;
+            if (index === 0) medal = '🥇';
+            if (index === 1) medal = '🥈';
+            if (index === 2) medal = '🥉';
+            description += `${medal} **${row.username}** — \`${row.points}\` نقطة/Points\n`;
+        });
+
+        const lbEmbed = new EmbedBuilder()
+            .setTitle('📊 لوحة صدارة لعبة التخمين / Leaderboard')
+            .setDescription(description)
+            .setColor(0xF1C40F)
+            .setThumbnail('https://cdn-icons-png.flaticon.com/512/3112/3112946.png');
+        await interaction.editReply({ embeds: [lbEmbed] });
+    }
+
+    // أمر إرسال رسائل إمبد (Embed Creator)
+    if (commandName === 'embed') {
+        await interaction.deferReply({ ephemeral: true });
+        
+        const title = options.getString('title');
+        const desc = options.getString('description');
+        let colorInput = options.getString('color') || '#3498db';
+        
+        // تنظيف وحل صيغة اللون ليقبله الديسكورد
+        colorInput = colorInput.replace('#', '');
+        const finalColor = parseInt(colorInput, 16) || 0x3498DB;
 
         const customEmbed = new EmbedBuilder()
             .setTitle(title)
-            .setDescription(description.replace(/\\n/g, '\n')) // يدعم النزول لسطر جديد بـ \n
-            .setColor(colors[colorName])
-            .setTimestamp()
-            .setFooter({ text: `${BOT_NAME}`, iconURL: client.user.displayAvatarURL() });
+            .setDescription(desc)
+            .setColor(finalColor)
+            .setFooter({ text: `${BOT_NAME} • نظام النشر` })
+            .setTimestamp();
 
-        // إرسال رد مخفي للمشرف ليرى نجاح العملية
-        await interaction.reply({ content: '✅ تم إرسال رسالة الإمبد بنجاح في القناة!', ephemeral: true });
-        
-        // إرسال الإمبد الفعلي في القناة للجميع
-        await interaction.channel.send({ embeds: [customEmbed] });
+        // إرسال الإمبد مباشرة في القناة
+        await channel.send({ embeds: [customEmbed] });
+        await interaction.editReply({ content: '✅ تم إرسال رسالة الإمبد بنجاح!' });
     }
 });
 
