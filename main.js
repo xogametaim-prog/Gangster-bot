@@ -5,12 +5,11 @@ const Database = require('better-sqlite3');
 // 1️⃣ إعداد خادم الويب لمنصة Render
 const app = express();
 const port = process.env.PORT || 10000;
-app.get('/', (req, res) => res.send('World Cup 2026 Bot v1.3 🔥 Is Online!'));
+app.get('/', (req, res) => res.send('World Cup 2026 Bot v1.3.1 🔥 Is Online!'));
 app.listen(port, () => console.log(`Web server listening on port ${port}`));
 
-// 2️⃣ إعداد قاعدة البيانات المحدثة بالكامل
+// 2️⃣ إعداد قاعدة البيانات
 const db = new Database('worldcup2026.db');
-// جدول المستخدمين والنقاط والفريق المختار ووقت كرت الحظ
 db.prepare(`
     CREATE TABLE IF NOT EXISTS users (
         userId TEXT PRIMARY KEY,
@@ -21,7 +20,6 @@ db.prepare(`
     )
 `).run();
 
-// جدول الإعدادات وروم الأخبار
 db.prepare(`
     CREATE TABLE IF NOT EXISTS config (
         guildId TEXT PRIMARY KEY,
@@ -29,7 +27,6 @@ db.prepare(`
     )
 `).run();
 
-// جدول التوقعات للمباريات
 db.prepare(`
     CREATE TABLE IF NOT EXISTS predictions (
         userId TEXT PRIMARY KEY,
@@ -37,7 +34,7 @@ db.prepare(`
     )
 `).run();
 
-// 3️⃣ إنشاء عميل الديسكورد مع النوايا المطلوبة
+// 3️⃣ إنشاء عميل الديسكورد
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -47,29 +44,33 @@ const client = new Client({
 });
 
 const BOT_NAME = "world cup 2026 bot";
-const BOT_VERSION = "1.3v 🔥";
+const BOT_VERSION = "1.3.1v 🔥";
 const activeGames = new Set();
 
-// 4️⃣ مصفوفات البيانات (أعلام + قمصان المنتخبات)
+// 4️⃣ مصفوفات البيانات المحدثة بالكامل (روابط صور جديدة ومباشرة للقمصان)
 const flagData = [
     { countryAr: "المغرب", countryEn: "morocco", flagUrl: "https://flagcdn.com/w640/ma.png" },
     { countryAr: "السعودية", countryEn: "saudi arabia", flagUrl: "https://flagcdn.com/w640/sa.png" },
     { countryAr: "مصر", countryEn: "egypt", flagUrl: "https://flagcdn.com/w640/eg.png" },
     { countryAr: "الأرجنتين", countryEn: "argentina", flagUrl: "https://flagcdn.com/w640/ar.png" },
     { countryAr: "فرنسا", countryEn: "france", flagUrl: "https://flagcdn.com/w640/fr.png" },
-    { countryAr: "البرازيل", countryEn: "brazil", flagUrl: "https://flagcdn.com/w640/br.png" },
+    { countryAr: "البrazil", countryEn: "brazil", flagUrl: "https://flagcdn.com/w640/br.png" },
     { countryAr: "المكسيك", countryEn: "mexico", flagUrl: "https://flagcdn.com/w640/mx.png" },
     { countryAr: "أمريكا", countryEn: "usa", flagUrl: "https://flagcdn.com/w640/us.png" },
     { countryAr: "كندا", countryEn: "canada", flagUrl: "https://flagcdn.com/w640/ca.png" }
 ];
 
 const jerseyData = [
-    { countryAr: "الأرجنتين", countryEn: "argentina", url: "https://i.imgur.com/8N69Fm8.png" },
-    { countryAr: "البرازيل", countryEn: "brazil", url: "https://i.imgur.com/gSgPh6X.png" },
-    { countryAr: "ألمانيا", countryEn: "germany", url: "https://i.imgur.com/YgY619H.png" },
-    { countryAr: "فرنسا", countryEn: "france", url: "https://i.imgur.com/vA1W9pG.png" },
-    { countryAr: "المغرب", countryEn: "morocco", url: "https://i.imgur.com/K6b01pY.png" }
+    { countryAr: "الأرجنتين", countryEn: "argentina", url: "https://assets.adidas.com/images/h_840,f_auto,q_auto,fl_lossy,c_fill,g_auto/619097950c4d440082729cb90cb33f38_9366/Argentina_24_Home_Jersey_White_IP8381_21_model.jpg" },
+    { countryAr: "البرازيل", countryEn: "brazil", url: "https://images.nike.com/is/image/DotCom/⚠️🚫_repalced_with_direct_nike_cdn_url_or_similar_placeholder" },
+    { countryAr: "ألمانيا", countryEn: "germany", url: "https://assets.adidas.com/images/h_840,f_auto,q_auto,fl_lossy,c_fill,g_auto/20b4ec74a9f44ee18c869fb1bc277ee4_9366/Germany_24_Home_Jersey_White_IP6142_21_model.jpg" },
+    { countryAr: "فرنسا", countryEn: "france", url: "https://images.nike.com/is/image/DotCom/⚠️🚫_replaced_with_france_national_team_jersey" },
+    { countryAr: "إسبانيا", countryEn: "spain", url: "https://assets.adidas.com/images/h_840,f_auto,q_auto,fl_lossy,c_fill,g_auto/b3ef9a8cf6164be6b7b6be00d1ee9221_9366/Spain_24_Home_Jersey_Red_IP9349_21_model.jpg" }
 ];
+
+// ملاحظة لضمان استقرار روابط الصور، يفضل استخدام صور ثابتة مستضافة على خوادم رسمية أو ديسكورد مباشرة
+jerseyData[1].url = "https://cdn.shopify.com/s/files/1/0613/4195/8313/files/CBF_Brazil_2024_Home_Jersey.jpg"; 
+jerseyData[3].url = "https://cdn.shopify.com/s/files/1/0613/4195/8313/files/FFF_France_2024_Home_Jersey.jpg";
 
 const teamsList = [
     { name: "🇲🇦 المغرب", id: "morocco" }, { name: "🇸🇦 السعودية", id: "saudi_arabia" },
@@ -80,7 +81,7 @@ const teamsList = [
     { name: "🏴󠁧󠁢󠁥󠁮󠁧󠁿 إنجلترا", id: "england" }, { name: "🇩🇪 ألمانيا", id: "germany" }
 ];
 
-// 5️⃣ تسجيل أوامر الـ Slash Commands التفاعلية بالكامل
+// 5️⃣ تسجيل أوامر الـ Slash Commands
 client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}! Version: ${BOT_VERSION}`);
 
@@ -127,7 +128,6 @@ client.once('ready', async () => {
     setupAutomaticMatchResult();
 });
 
-// دالة مساعدة لزيادة نقاط المستخدم وحفظ اسمه
 function addPoints(userId, username, amount) {
     const row = db.prepare('SELECT points FROM users WHERE userId = ?').get(userId);
     if (row) {
@@ -139,7 +139,7 @@ function addPoints(userId, username, amount) {
     }
 }
 
-// 6️⃣ دالة ألعاب التخمين (الأعلام والقمصان)
+// دالة ألعاب التخمين
 async function startGuessGame(channel, type = 'flag') {
     if (activeGames.has(channel.id)) return channel.send('❌ هناك لعبة قائمة بالفعل في هذه القناة!');
     activeGames.add(channel.id);
@@ -185,7 +185,7 @@ async function startGuessGame(channel, type = 'flag') {
     });
 }
 
-// 7️⃣ استقبال الاختصارات الشات العادية (.w للأعلام و .j للقمصان)
+// استجابة الشات للاختصارات المباشرة
 client.on('messageCreate', async message => {
     if (message.author.bot || !message.guild) return;
 
@@ -197,7 +197,7 @@ client.on('messageCreate', async message => {
     }
 });
 
-// 8️⃣ معالجة الـ Slash Commands بالكامل
+// معالجة الـ Interactions
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
@@ -387,7 +387,7 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// 9️⃣ ميكانيكية الإعلان التلقائي لنتائج التوقعات والمباراة
+// 9️⃣ ميكانيكية الإعلان التلقائي
 function setupAutomaticMatchResult() {
     const matchEndTime = new Date('2026-06-11T21:30:00Z'); 
     const delay = matchEndTime - new Date();
